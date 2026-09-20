@@ -1,0 +1,25 @@
+{
+  "name": "ine-price-tracker-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=18.18" },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test",
+    "e2e": "node e2e/run.js",
+    "mock-store": "node e2e/mockStore.js",
+    "probe": "node src/scripts/probe.js",
+    "scrape:headed": "node src/scripts/scrapeHeaded.js",
+    "scrape:demo": "node src/scripts/scrapeHeaded.js --demo",
+    "playwright:install": "playwright install chromium"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "playwright": "1.49.1"
+  }
+}

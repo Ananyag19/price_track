@@ -1,0 +1,91 @@
+:root {
+  --bg: #ffffff;
+  --text: #1b1f24;
+  --muted: #5d6673;
+  --line: #d9dee4;
+  --soft: #f5f7f9;
+  --accent: #1f5fbf;
+  --ok: #17692f;
+  --warn: #8a5a00;
+  --bad: #b3261e;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px 48px; }
+
+header.top {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 16px;
+}
+header.top .wrap { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding-bottom: 0; }
+header.top h1 { font-size: 17px; margin: 14px 0 8px; font-weight: 600; }
+
+nav.tabs { display: flex; gap: 4px; }
+nav.tabs button {
+  border: 0; background: none; padding: 8px 12px; font: inherit; color: var(--muted);
+  border-bottom: 2px solid transparent; cursor: pointer;
+}
+nav.tabs button[aria-current="page"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+
+h2 { font-size: 15px; margin: 24px 0 8px; }
+p.hint { color: var(--muted); margin: 4px 0 12px; }
+.muted { color: var(--muted); }
+
+input[type="search"], select {
+  font: inherit; padding: 7px 10px; border: 1px solid var(--line); border-radius: 4px; background: #fff; color: var(--text);
+}
+input[type="search"] { width: 100%; max-width: 420px; }
+
+button.btn {
+  font: inherit; padding: 6px 12px; border: 1px solid var(--line); border-radius: 4px; background: #fff; color: var(--text); cursor: pointer;
+}
+button.btn:hover:not(:disabled) { background: var(--soft); }
+button.btn:disabled { color: var(--muted); cursor: default; }
+button.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.btn.primary:hover:not(:disabled) { background: #194f9f; }
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible, tr[tabindex]:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); font-size: 13px; white-space: nowrap; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr.selectable { cursor: pointer; }
+tbody tr.selectable:hover { background: var(--soft); }
+tbody tr.selected { background: #eaf1fb; }
+
+.status-success { color: var(--ok); font-weight: 600; }
+.status-retried { color: var(--warn); font-weight: 600; }
+.status-failed { color: var(--bad); font-weight: 600; }
+
+.banner { padding: 8px 12px; border: 1px solid var(--line); background: var(--soft); border-radius: 4px; margin-bottom: 12px; }
+.banner.error { border-color: #e7b8b4; background: #fdf1f0; color: var(--bad); }
+
+.detail { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 4px; }
+.detail-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+.detail-head h2 { margin-top: 16px; font-size: 18px; }
+.actions { display: flex; gap: 8px; margin-top: 16px; }
+
+dl.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px 24px; margin: 12px 0 8px; }
+dl.facts dt { color: var(--muted); font-size: 13px; }
+dl.facts dd { margin: 0; font-size: 16px; font-variant-numeric: tabular-nums; }
+dl.facts dd.big { font-size: 22px; font-weight: 600; }
+
+.subtabs { display: flex; gap: 4px; margin: 16px 0 8px; border-bottom: 1px solid var(--line); }
+.subtabs button { border: 0; background: none; font: inherit; padding: 6px 10px; color: var(--muted); border-bottom: 2px solid transparent; cursor: pointer; }
+.subtabs button[aria-current="true"] { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+
+.toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.err-text { color: var(--bad); }
+.small { font-size: 13px; }
+svg.chart { width: 100%; height: auto; max-height: 200px; display: block; margin-bottom: 12px; }

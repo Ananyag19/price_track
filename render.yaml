@@ -1,0 +1,23 @@
+# Render Blueprint: Dashboard -> New -> Blueprint -> pick this repo.
+# (Or create a Web Service by hand: Runtime = Docker, Root Directory = backend.)
+services:
+  - type: web
+    name: ine-price-tracker-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false          # your Vercel URL, e.g. https://ine-price-tracker.vercel.app
+      - key: STORE_BASE_URL
+        value: https://demo.inelabteamdev.com
+      - key: HEADLESS
+        value: "true"
