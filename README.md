@@ -226,24 +226,14 @@ Two details worth knowing:
 
 Live URLs (fill in after deploying):
 
-- Frontend: `https://…vercel.app`
-- Backend: `https://…onrender.com`
-- Repository: `https://github.com/…`
+- Frontend: `https://price-track-flax.vercel.app`
+- Backend: `https://price-track-7wg0.onrender.com`
+- Repository: `https://github.com/Ananyag19/price_track`
 
-## 11. Honest notes and limitations
+## 11. Notes and limitations
 
 - **Verified against a mock, not the live store.** The scraper was tested end-to-end in real Chromium against a local mock that reproduces the store's documented behaviours (JS-rendered page, cookie overlay, reveal gate needing hover dwell, dropped clicks, late price and stock, hidden/off-screen/transparent decoys, struck-through MRP, zero-width characters). The live site could not be reached from the environment this was built in. **Before recording, run `npm run probe` and `npm run scrape:headed -- --product <id>` against the real store.** If the catalogue path or JSON field names differ, adjust `CATALOG_PATH` in `.env` or the `pick(...)` key lists in `catalogClient.js`; the failure will be a clear message, not bad data.
 - **Heuristic extraction is deliberately strict.** If the live page shows two different prices at the same size, or a stock line that contradicts another nearby, the scrape fails with `price_ambiguous` / `stock_ambiguous` instead of guessing. Those codes tell you exactly what to look at in the headed run.
 - **Free-tier limits.** About 512 MB RAM on Render's free plan is tight for Chromium; that is why scraping is serialised. If many products are tracked, a scheduled run takes a few minutes.
 - **Manual scrape is public.** It is protected only by an "already running" check, which is acceptable for a demo. For real use, add authentication or rate limiting.
 - **Logs are append-only and never pruned.** Add a retention job if this ran for months.
-
-## 12. Interview cheat-sheet
-
-- *Why Playwright for price but `fetch` for search?* The catalogue is plain JSON, so a browser would be wasteful. Price and stock only exist after the page's own JavaScript runs and the reveal gate is passed.
-- *Why not `setInterval`?* Free hosts sleep. An external scheduler both wakes the server and triggers the work.
-- *Why does `/api/scrape` return 202?* Cron services time out in about 30 s; scraping with retries takes longer.
-- *How do you avoid saving wrong data?* Visible-only and non-struck filtering, "biggest price wins or fail", stability check, validation, and DB `CHECK` constraints. Failure paths write only to the log.
-- *What does `retried` mean?* That attempt failed and another follows. `failed` means it was the last one.
-- *Why a new browser context per retry?* The store's session tokens are short-lived; reusing a stale session would just fail again.
-- *Where would you change something?* Timeouts/attempts: `.env`. What counts as a price/stock: `parse.js` + `extract.js` (pure, unit-tested). Page interaction: `pageScraper.js`.
