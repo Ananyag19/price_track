@@ -2,7 +2,6 @@
 
 Tracks the price and stock of products in the INE mock store (`https://demo.inelabteamdev.com/`), keeps a history, and records every scrape attempt, including the ones that fail.
 
-Built for the INE Software Engineer Intern assignment.
 
 | Piece | Choice | Hosted on |
 |---|---|---|
@@ -11,8 +10,6 @@ Built for the INE Software Engineer Intern assignment.
 | Database | PostgreSQL | Supabase |
 | Scraper | `fetch` for the catalogue, Playwright (Chromium) for price and stock | inside the backend |
 | Scheduler | cron-job.org, every 2 hours | cron-job.org |
-
-No n8n, no AI browser agent: the scraper is ordinary, readable code.
 
 ---
 
