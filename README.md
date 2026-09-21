@@ -1,151 +1,167 @@
 # INE Product Price Tracker
 
-Tracks the price and stock of products in the INE mock store (`https://demo.inelabteamdev.com/`), keeps a history, and records every scrape attempt, including the ones that fail.
+A small full-stack app that tracks the **price and stock** of products in the INE mock store, keeps a history, and records **every scrape attempt, including the ones that fail**.
 
+Built for the INE Software Engineer Intern assignment.
 
-| Piece | Choice | Hosted on |
-|---|---|---|
-| Frontend | React 18 + Vite (plain CSS, no UI kit) | Vercel |
-| Backend | Node.js + Express | Render (Docker) |
-| Database | PostgreSQL | Supabase |
-| Scraper | `fetch` for the catalogue, Playwright (Chromium) for price and stock | inside the backend |
-| Scheduler | cron-job.org, every 2 hours | cron-job.org |
+| | |
+|---|---|
+| **Live app** | https://price-track-flax.vercel.app |
+| **Backend API** | https://price-track-7wg0.onrender.com/api/health |
+| **Demo video** | _add your link here_ |
+| **Target store** | https://demo.inelabteamdev.com/ (the only site the scraper visits) |
+
+> The backend runs on Render's free plan, which sleeps when idle. The first request after a quiet period can take up to a minute.
 
 ---
 
-## 1. How it works
+## What it does
+
+- **Search** the store by part or all of a product name (brand, SKU and category also match).
+- **Track** a product. It is saved in the database and scraped straight away.
+- See each tracked product's **current price and stock**.
+- See the **price and stock history** as a table and a chart.
+- See the **scrape log** for one product, or the complete log for all products, with success, retry and failure details.
+- Prices refresh **automatically every 2 hours** through an external scheduler.
+
+## Tech stack
+
+| Part | Technology | Hosted on |
+|---|---|---|
+| Frontend | React 18 + Vite, plain CSS | Vercel |
+| Backend | Node.js + Express | Render (Docker) |
+| Database | PostgreSQL | Supabase |
+| Scraping | `fetch` for the product list, Playwright (Chromium) for price and stock | inside the backend |
+| Scheduler | cron-job.org, every 2 hours | cron-job.org |
+
+No n8n and no AI browser agent: the scraper is ordinary, readable code.
+
+## How it works
 
 ```
-cron-job.org  ──POST /api/scrape (every 2h, Bearer secret)──►  Express (Render)
-                                                                   │  returns 202 immediately
-React (Vercel) ──REST──► Express ──► queue (1 job at a time) ──► Scraper
-                                                                   │
-                                     INE store ◄── Playwright ─────┤  price + stock
-                                     INE store ◄── fetch ──────────┘  catalogue (search)
-                                                                   │
-                                                          validate ─► Supabase
-                                                       (history only if valid; log always)
+cron-job.org ──POST /api/scrape (every 2h, secret token)──► Express backend (Render)
+                                                                 │ replies 202 at once
+React app (Vercel) ──REST──► Express ──► queue (1 job at a time) ──► Scraper
+                                                                 │
+                              INE store ◄── Playwright ──────────┤  price + stock
+                              INE store ◄── fetch ───────────────┘  product list (search)
+                                                                 │
+                                                        validate ─► Supabase
+                                          (history only if valid, log always)
 ```
 
-- **Search** uses the store's catalogue JSON over plain HTTP. It is cached for 5 minutes, so typing in the search box does not hammer the store. Partial and full names work: every word you type must appear in the name, brand, SKU or category, and better matches rank first.
-- **Price and stock** are not in that JSON. They are only shown after the page runs its own JavaScript and you press "Reveal price", so this part needs a real browser (Playwright). This is the "use Playwright when JavaScript rendering is genuinely required" rule from the brief.
-- **Tracking** stores the product in Supabase (by the store's product id, never by display name) and queues a first scrape.
-- **Scheduling** is external. Free-tier servers sleep, so a `setInterval` inside the server would silently stop. cron-job.org wakes the server and triggers the scrape.
+- **Search** uses the store's product list, fetched over plain HTTP. The list is paginated (hundreds of products over many pages), so the backend reads every page once, keeps it in memory for 5 minutes and searches that copy.
+- **Price and stock** are not in that list. They appear only after the page runs its own JavaScript and you press "Reveal price", so this part needs a real browser (Playwright).
+- **Scheduling is external** because free servers sleep. A timer inside the server would silently stop. cron-job.org wakes the server and triggers the scrape.
+- Scrape requests return **202 immediately** and work in the background, because cron services give up after about 30 seconds.
 
-## 2. Repository layout
+## How the scraper stays reliable
+
+| Problem | What the code does |
+|---|---|
+| Content loads late | Checks the page every ~0.35s. A reading is trusted only after it stays identical for about 0.8s, so spinners and placeholders are never saved. |
+| Slow responses | Page-load timeout (20s), data timeout (25s) and a hard per-attempt limit (60s) that closes the browser. |
+| Failed requests | Server errors, rate limits, network errors and timeouts are retried. A 404 is not retried. |
+| Temporary problems | Up to **4 attempts**, waiting longer each time. Each attempt uses a **fresh browser session**, because the store's sessions are short-lived. |
+| "Reveal price" check | Moves the mouse like a person, hovers on the button for about a second with small movements, then clicks. If the click is dropped, it clicks again. |
+| Cookie banners | Clicked automatically on every attempt. Accepts first, declines if there is no accept button. |
+| Decoy prices | Only prices a person could see count. Hidden, off-screen, transparent and crossed-out prices are ignored, as are "MRP" labels and "Save ₹200" badges. |
+| Unclear page | If two different prices tie for the real one, or stock messages contradict each other, the attempt **fails** instead of guessing. |
+| Page redesigns | No fixed CSS selectors. Elements are found by what they look like (price-shaped text, size, position). |
+| Bad data | Checked before saving (price above zero, valid currency, consistent stock). The database enforces the same rules with `CHECK` constraints. |
+| Honest failures | A failed scrape writes only to the log, never to the history. Every attempt is logged. |
+
+**Log statuses:** `success` (this attempt worked), `retried` (this attempt failed, another follows), `failed` (out of attempts).
+
+**Error codes you may see:** `timeout`, `network_error`, `http_error`, `product_not_found`, `reveal_failed`, `price_not_found`, `price_ambiguous`, `stock_not_found`, `stock_ambiguous`, `invalid_price`, `invalid_stock`, `attempt_timeout`, `browser_launch_failed`, `db_error`.
+
+## Project layout
 
 ```
-supabase/schema.sql          tables, constraints, indexes, view, row-level security
+supabase/schema.sql          database tables, rules and indexes
 render.yaml                  Render blueprint
 backend/
   Dockerfile                 Playwright base image (Chromium included)
   src/
     server.js  app.js  config.js  logger.js
     routes/api.js            all endpoints
-    db/repo.js  supabase.js  every database query lives in repo.js
+    db/repo.js  supabase.js  every database query
     scraper/
-      catalogClient.js       HTTP catalogue + search (cache, retries, stale-on-error)
-      pageScraper.js         Playwright: open page, reveal gate, wait for data, read the DOM
+      catalogClient.js       product list + search (all pages, cache, retries)
+      pageScraper.js         browser: open page, banners, reveal, read the page
       parse.js               text -> price / stock (pure functions)
-      extract.js             which candidate is the REAL price / stock (pure functions)
-      validate.js            last gate before the database (pure)
-      retry.js               retry + backoff, reports every attempt (pure)
-      scrapeProduct.js       ties it together for one product, writes the log
-      runner.js              one-job-at-a-time queue, browser lifecycle
+      extract.js             which candidate is the real price / stock
+      validate.js            last check before saving
+      retry.js               retries with waiting, reports every attempt
+      scrapeProduct.js       one product: scrape, validate, save, log
+      runner.js              queue: one job at a time, browser lifecycle
       chaos.js               fault injection for the demo only
-    scripts/scrapeHeaded.js  visible-browser run / demo
-    scripts/probe.js         checks the catalogue endpoint shape
-  test/                      unit + API tests (no browser needed)
-  e2e/                       mock store + end-to-end scraper run (needs Chromium)
+    scripts/scrapeHeaded.js  visible-browser run and demo
+    scripts/probe.js         checks the store's product list
+  test/                      unit and API tests (no browser needed)
+  e2e/                       mock store + end-to-end scraper run
 frontend/
-  src/App.jsx  api.js        state, polling, API client
-  src/components/            SearchPanel, TrackedList, ProductDetail, PriceChart, LogTable, LogsPage
+  src/App.jsx  api.js
+  src/components/            search, tracked list, details, chart, logs
 ```
 
-## 3. Scraper design (the important part)
+## Database
 
-**One attempt** (`pageScraper.js`): fresh browser context → open `/product/<id>` → loop until a trustworthy reading exists.
-
-| Requirement | What the code does |
-|---|---|
-| Late-loaded content | A single polling loop (every 350 ms) re-reads the page until content shows up. "Late" is just "a few more ticks", not a special case. |
-| Slow responses / timeouts | Navigation timeout (20 s), data timeout (25 s) and a hard per-attempt ceiling (60 s) that closes the browser context. |
-| Request failures | HTTP 5xx/429/408, network errors and timeouts are retryable. A 404 is not retried (the product does not exist). |
-| Retries | Up to 3 attempts, exponential backoff with jitter. **Each attempt uses a new browser context** (fresh session), because the store's tokens are short-lived. |
-| Reveal gate | Finds the "Reveal price" button, moves the mouse in steps, dwells about 0.7 s on it, then clicks. If the button is still there 3 s later the click was dropped, so it clicks again (max 4). |
-| Cookie/consent overlays | Dismissed automatically if they appear. |
-| Decoy prices | Only elements a human can see count: `display:none`, `visibility:hidden`, `opacity:0`, zero size, off-screen and transparent text are ignored. Struck-through prices (`<s>`, `<del>`, `line-through`) and "MRP / was / original" labels are treated as the list price. "Save ₹200" style text is ignored. |
-| Two similar prices | The selling price is the largest visible one. If several *different* values tie, the scrape **fails as `price_ambiguous`** rather than guessing. |
-| Stock | The stock text closest to the chosen price wins, so a related product's "Out of stock" badge lower down cannot leak in. Contradictory messages fail as `stock_ambiguous`. |
-| Transitional values | A reading is trusted only after it stays identical for about 0.8 s, so placeholders and spinners are not saved. The reveal gate must also be gone. |
-| Text cleaning | Zero-width characters, non-breaking spaces, `₹`, `Rs.`, `INR`, commas are handled. |
-| Page structure changes | No brittle CSS selectors or DOM positions. It finds things by what they *are* (visible text shaped like a price, near a stock message) and by what they look like (size, strikethrough). |
-| Validation | Price must be a finite number > 0 with a 3-letter currency; stock must be `in_stock`, `low_stock` or `out_of_stock` with a consistent quantity. The database has matching `CHECK` constraints as a second line of defence. |
-| Never save junk | Only validated data reaches `price_stock_history`. A failed scrape writes **only** to `scrape_logs`. |
-| Honest logs | Every attempt is logged: `success`, `retried` (failed, another attempt follows) or `failed` (out of attempts), with an error code and message. If Chromium cannot even start, that is logged per product too. |
-
-Error codes you will see: `timeout`, `network_error`, `http_error`, `product_not_found`, `reveal_failed`, `price_not_found`, `price_ambiguous`, `stock_not_found`, `stock_ambiguous`, `invalid_price`, `invalid_stock`, `attempt_timeout`, `browser_launch_failed`, `db_error`.
-
-**Memory:** Chromium is heavy and free hosting has about 512 MB, so the runner executes **one job at a time** with one browser, and closes each context after each attempt.
-
-## 4. Database (Supabase / PostgreSQL)
-
-Run `supabase/schema.sql` once (see setup). It creates:
+Run `supabase/schema.sql` once in the Supabase SQL Editor.
 
 | Table | Purpose |
 |---|---|
-| `tracked_products` | Products being tracked (persisted). "Stop tracking" sets `is_active = false`, so history and logs are kept. |
-| `price_stock_history` | One row per successful, validated reading: price, currency, stock status, stock quantity, timestamp. |
-| `scrape_logs` | One row per attempt: timestamp, product, run id, trigger (`cron`/`manual`/`track`/`headed`), attempt number, status, error code/message, duration. |
-| `tracked_products_overview` (view) | Each product with its latest reading and latest attempt, used by the dashboard list. |
+| `tracked_products` | Products being tracked. "Stop tracking" only hides them; history and logs are kept. |
+| `price_stock_history` | One row per successful, validated reading: price, currency, stock status, quantity, time. |
+| `scrape_logs` | One row per attempt: time, product, run id, trigger, attempt number, status, error code and message, duration. |
+| `tracked_products_overview` (view) | Each product with its latest reading and latest attempt. |
 
-Row-level security is on with no policies, so the public anon key can read nothing. Only the backend, using the service-role key, touches the tables.
+Row-level security is on with no public policies, so the public key can read nothing. Only the backend, using the service-role key, touches the tables.
 
-## 5. API
+## API
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/health` | Liveness / wake-up ping |
-| GET | `/api/products/search?q=` | Search the store (partial or full name) |
-| GET | `/api/tracked` | Tracked products with current price/stock |
-| POST | `/api/tracked` | Body `{ "storeProductId": "705" }`. Details come from the catalogue, not the request. Queues a first scrape. |
+| GET | `/api/health` | Liveness and wake-up check |
+| GET | `/api/products/search?q=` | Search the store |
+| GET | `/api/tracked` | Tracked products with current price and stock |
+| POST | `/api/tracked` | Body `{ "storeProductId": "705" }`. Details come from the store, not the request. Starts a first scrape. |
 | DELETE | `/api/tracked/:id` | Stop tracking (history kept) |
-| GET | `/api/tracked/:id/history` | Price/stock history |
-| GET | `/api/tracked/:id/logs` | Per-product scrape log |
-| GET | `/api/logs?status=` | Complete scrape log (all products) |
-| POST | `/api/tracked/:id/scrape` | Manual scrape, returns `202` |
-| POST | `/api/scrape` | **Scheduler endpoint.** Requires `Authorization: Bearer <CRON_SECRET>`. Returns `202` at once. |
+| GET | `/api/tracked/:id/history` | Price and stock history |
+| GET | `/api/tracked/:id/logs` | Scrape log for one product |
+| GET | `/api/logs?status=&trigger=` | Complete scrape log. `trigger` is `cron`, `manual`, `track` or `headed`. |
+| GET | `/api/status` | When the scheduler last fired |
+| POST | `/api/tracked/:id/scrape` | Manual scrape, returns 202 |
+| POST | `/api/scrape` | **Scheduler endpoint.** Needs `Authorization: Bearer <CRON_SECRET>`. Returns 202. |
 
-Scrape endpoints return immediately and work in the background, because cron services give up after roughly 30 seconds while a scrape with retries can take minutes.
+## Run it locally
 
-## 6. Local setup
+You need Node.js 18.18 or newer (22 recommended) and a free Supabase project.
 
-Requirements: Node 18.18+ (22 recommended), a free Supabase project.
+**1. Database**
+1. In Supabase, open **SQL Editor**, paste all of `supabase/schema.sql` and run it.
+2. Open **Project Settings → API** and copy the Project URL and the `service_role` key.
 
-**Database**
-1. Supabase → your project → **SQL Editor** → New query → paste `supabase/schema.sql` → Run.
-2. **Project Settings → API**: copy the Project URL and the `service_role` key (keep it secret, never put it in the frontend).
-
-**Backend**
+**2. Backend**
 ```bash
 cd backend
 npm install
-npx playwright install chromium     # one-time browser download
-cp .env.example .env                # then fill in the values
-npm run probe                       # checks the store catalogue endpoint (do this first)
-npm run dev                         # http://localhost:3001
+npx playwright install chromium
+cp .env.example .env        # then fill it in
+npm run probe               # checks the store's product list
+npm run dev                 # http://localhost:3001
 ```
 
-**Frontend**
+**3. Frontend** (a second terminal)
 ```bash
 cd frontend
 npm install
-npm run dev                         # http://localhost:5173 (proxies /api to :3001)
+npm run dev                 # http://localhost:5173
 ```
 
-Then open the app → **Search store** → type part of a product name → **Track**.
+Open the app, go to **Search store**, type part of a product name and press **Track**.
 
-## 7. Environment variables
+### Environment variables
 
 Backend (`backend/.env`):
 
@@ -153,84 +169,108 @@ Backend (`backend/.env`):
 |---|---|---|---|
 | `SUPABASE_URL` | yes | | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | | Server-side key. Never expose it. |
-| `CRON_SECRET` | yes | | Shared secret the scheduler sends as a Bearer token |
-| `CORS_ORIGIN` | prod | `*` | Allowed frontend origin(s), comma separated |
+| `CRON_SECRET` | yes | | Secret the scheduler sends as a Bearer token |
+| `CORS_ORIGIN` | production | `*` | Allowed frontend addresses, comma separated |
 | `PORT` | no | `3001` | Render sets this itself |
 | `STORE_BASE_URL` | no | `https://demo.inelabteamdev.com` | The only site the scraper visits |
-| `CATALOG_PATH` | no | `/api/catalog` | Catalogue JSON path |
-| `HEADLESS` | no | `true` | `false` shows the browser (server runs) |
-| `SCRAPE_MAX_ATTEMPTS` | no | `3` | Attempts per product |
+| `CATALOG_PATH` | no | `/api/catalog` | Product list path |
+| `CATALOG_PAGE_SIZE` | no | `100` | Items requested per page |
+| `PRODUCT_PATH` | no | `/api/product` | Single-product lookup, used as a fallback |
+| `HEADLESS` | no | `true` | `false` shows the browser (local runs) |
+| `SCRAPE_MAX_ATTEMPTS` | no | `4` | Attempts per product |
 | `SCRAPE_NAV_TIMEOUT_MS` | no | `20000` | Page-load timeout |
-| `SCRAPE_DATA_TIMEOUT_MS` | no | `25000` | Time allowed for the reveal + data to appear |
-| `SCRAPE_ATTEMPT_TIMEOUT_MS` | no | `60000` | Hard ceiling per attempt |
-| `SCRAPE_RETRY_BASE_DELAY_MS` | no | `1500` | Backoff base (1.5 s, 3 s, 6 s…) |
-| `CHROMIUM_EXECUTABLE_PATH` | no | | Use an existing Chrome/Chromium |
+| `SCRAPE_DATA_TIMEOUT_MS` | no | `25000` | Time allowed for the price to appear |
+| `SCRAPE_ATTEMPT_TIMEOUT_MS` | no | `60000` | Hard limit per attempt |
+| `SCRAPE_RETRY_BASE_DELAY_MS` | no | `1500` | Base wait between retries |
+| `DEBUG_SCREENSHOT_DIR` | no | | e.g. `debug`: saves a screenshot when an attempt fails |
+| `CHROMIUM_EXECUTABLE_PATH` | no | | Use an existing Chrome or Chromium |
 
-Frontend (`frontend/.env`, or Vercel project settings):
+Frontend (`frontend/.env` or Vercel settings):
 
 | Variable | Meaning |
 |---|---|
-| `VITE_API_BASE_URL` | Backend URL including `/api`, e.g. `https://ine-price-tracker-api.onrender.com/api`. Leave empty locally. |
+| `VITE_API_BASE_URL` | Backend address ending in `/api`, e.g. `https://price-track-7wg0.onrender.com/api`. Leave empty locally. |
 
-## 8. Running the scraper
+## Running the scraper
 
-| Command (in `backend/`) | What it does |
+Run these from `backend/`.
+
+| Command | What it does |
 |---|---|
-| `npm run probe` | Calls the catalogue endpoint and prints its shape. Run first to confirm the store's JSON matches what the client expects. |
-| `npm run scrape:headed -- --product 705` | One real scrape with a **visible browser**. Dry run: prints results and the attempt log, touches no database. |
-| `npm run scrape:demo -- --product 705` | Same, plus injected faults: attempt 1 hangs past the timeout, attempt 2 fails at network level, attempt 3 is a normal request, so you see **slow → failure → retry → recovery**. |
-| add `--save` | Also writes to Supabase (tracks the product and stores logs/history), so the same run shows up in the UI. |
-| add `--slowmo 500` / `--headless` / `--attempts 5` | Tune the demo. |
-| `npm test` | 58 unit and API tests, no browser needed. |
-| `npm run e2e` | Runs the real scraper in Chromium against a local mock store (7 scenarios). |
-| `npm run mock-store` | Starts that mock store on `:4000` for rehearsing offline (`STORE_BASE_URL=http://127.0.0.1:4000`). |
+| `npm run probe` | Checks the store's product list and reports how many products it can read |
+| `npm run scrape:headed -- --product <id>` | One real scrape in a **visible browser**. Dry run: prints results, touches no database. |
+| `npm run scrape:demo -- --product <id>` | Same, with injected faults: attempt 1 hangs past the timeout, attempt 2 fails at network level, attempt 3 is normal. Shows **slow → failure → retry → recovery**. |
+| add `--save` | Also writes to Supabase, so the attempts appear in the web app's scrape log |
+| add `--slowmo 500`, `--headless`, `--attempts 5` | Tune the run |
+| `npm test` | 70 unit and API tests, no browser needed |
+| `npm run e2e` | Runs the real scraper in Chromium against a local mock store (7 scenarios) |
+| `npm run mock-store` | Starts the mock store on port 4000 for practice |
 
-Replace `705` with any id from the store (`/product/<id>`). Scheduled or API-triggered scrapes: `curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://<backend>/api/scrape`.
+`<id>` is the number at the end of a product's store link (`/product/<id>`).
 
-### Recording the 2–4 minute demo
+To make the app's own **Track** and **Scrape now** buttons open a visible browser, set `HEADLESS=false` in `backend/.env` and run both parts locally. A hosted server has no screen, so this works only on your own machine.
 
-1. `cd backend && npm run scrape:demo -- --product <id> --save`, with the terminal and the browser window both visible.
-2. Narrate as it goes:
-   - Attempt 1: the page request hangs, the 8 s timeout fires → logged `retried: timeout`.
-   - Attempt 2: the request fails at network level → logged `retried: network_error`.
-   - Attempt 3: real page. Overlay dismissed, mouse hover, "Reveal price" clicked (a dropped click gets re-clicked), spinner, then a stable price and stock.
-   - The terminal prints the attempt log and `Result: SUCCESS`.
-3. Open the deployed frontend → the product → **Scrape log** to show the same three attempts stored in Supabase, then **History** for the saved reading.
-4. Optionally show `npm run e2e` output to prove that failures save nothing.
+## Scheduling (every 2 hours)
 
-The whole story takes about 1–2 minutes of run time; the rest is narration and the UI walkthrough.
+1. Create a free account at [cron-job.org](https://cron-job.org) and click **Create cronjob**.
+2. **URL:** `https://price-track-7wg0.onrender.com/api/scrape`
+3. **Schedule:** every 2 hours (minute `0`, hours `0, 2, 4, … 22`).
+4. **Advanced:** method `POST`, header `Authorization: Bearer <your CRON_SECRET>`.
+5. Press **Test run**. Expect HTTP `202`.
+6. Optional but recommended: a second job, `GET https://price-track-7wg0.onrender.com/api/health`, at minute `55` of odd hours. It wakes the free server before each real run.
 
-## 9. Scheduling (every 2 hours, cron-job.org)
+**Note on timezones:** cron-job.org uses its own timezone (UTC by default), so runs can fall on the half hour in India time. The gap is still 2 hours.
 
-1. Create a free account at cron-job.org → **Create cronjob**.
-2. **URL:** `https://<your-render-service>.onrender.com/api/scrape`
-3. **Schedule:** every 2 hours (at minute 0).
-4. **Advanced → Request method:** `POST`. **Headers:** `Authorization: Bearer <your CRON_SECRET>`.
-5. Save, then use **Test run**: expect HTTP `202` and a `runId`. New rows appear in the **Scrape log** tab within a minute or two.
+**How to verify it:**
+- In cron-job.org, open the job's **History** (`202` means success).
+- In the app, open **Scrape log**. The banner shows when the scheduler last fired and turns red if it is overdue. Filter **Started by → Scheduler** to see only scheduled attempts. Rows sharing a **Run** id belong to one run.
+- Test runs clicked in cron-job.org also appear as `cron`, so extra entries after setup are normal.
 
-Two details worth knowing:
-- The endpoint answers `202` immediately and scrapes in the background, so the cron service's short request timeout (about 30 seconds) is not a problem.
-- On Render's free plan the service sleeps after about 15 minutes idle, and waking takes up to a minute. To avoid a timed-out first request, add a second cron job: `GET https://<service>.onrender.com/api/health` five minutes before each run (minute 55 of odd hours). It costs nothing and keeps the scheduled run reliable.
+## Deployment
 
-## 10. Deployment
+1. **Supabase:** create a project and run `supabase/schema.sql`.
+2. **Render (backend):** New → Web Service → connect the GitHub repo.
+   - Language **Docker**, Dockerfile path `backend/Dockerfile`, Docker build context `backend`.
+   - Instance type **Free**. Health check path `/api/health`.
+   - Environment: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`, `CORS_ORIGIN`, `STORE_BASE_URL`, `HEADLESS=true`. Do not set `PORT`.
+3. **Vercel (frontend):** New Project → import the repo → Root Directory `frontend`. Add `VITE_API_BASE_URL` with the Render address ending in `/api`.
+4. Set `CORS_ORIGIN` on Render to your Vercel address(es), comma separated, no trailing slash. Use the short public address, not a per-deployment one.
+5. Turn off Vercel's deployment login protection if others should open the site (**Settings → Deployment Protection**).
+6. Create the cron-job.org jobs above.
 
-1. **Supabase**: create the project and run `supabase/schema.sql` (section 6).
-2. **Render (backend)**: push this repo to GitHub → New → **Blueprint** (uses `render.yaml`), or New → Web Service → runtime **Docker**, Dockerfile path `backend/Dockerfile`, context `backend`. Health check path `/api/health`. Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`, `CORS_ORIGIN` (your Vercel URL, filled in after step 3).
-3. **Vercel (frontend)**: New Project → import the repo → **Root Directory `frontend`**, framework Vite (build `npm run build`, output `dist`). Add `VITE_API_BASE_URL=https://<render-service>.onrender.com/api`. Deploy.
-4. Go back to Render and set `CORS_ORIGIN` to the Vercel URL. Redeploy.
-5. **cron-job.org**: create the jobs from section 9.
-6. Check: open the Vercel site → the header shows "Backend connected" → search, track, and the first reading appears.
+Render and Vercel redeploy automatically on every push to the main branch.
 
-Live URLs (fill in after deploying):
+## Troubleshooting
 
-- Frontend: `https://price-track-flax.vercel.app`
-- Backend: `https://price-track-7wg0.onrender.com`
-- Repository: `https://github.com/Ananyag19/price_track`
+| Symptom | Likely cause and fix |
+|---|---|
+| Frontend says "Backend unreachable" | `CORS_ORIGIN` on Render does not include the frontend's exact address, or `VITE_API_BASE_URL` is missing or does not end in `/api`. Redeploy Vercel after changing it. |
+| Search shows nothing | Run `npm run probe`. Check `CATALOG_PATH` and that the store is reachable. |
+| Track says the product is not listed | Search again and pick it from the new results. The store's list can change between loads. |
+| `browser_launch_failed` | Run `npx playwright install chromium` (local). |
+| `reveal_failed` on some attempts | Common on the real store. Retries usually fix it. Check the `page says:` text in the log line. Set `DEBUG_SCREENSHOT_DIR=debug` for a screenshot. |
+| Price never appears on one computer only | The store checks the device (clock, graphics, security software). Check the system clock and graphics acceleration, and try another computer. |
+| Chart does not show | It needs at least two successful readings. Press **Scrape now** again. |
+| cron History shows 401 | The `Authorization: Bearer …` header is wrong. |
+| cron History shows a timeout on the first run | The server was asleep. Add the wake-up job. |
+| No scheduled runs in the log | The cron job does not exist or is disabled. |
 
-## 11. Notes and limitations
+## Limitations
 
-- **Verified against a mock, not the live store.** The scraper was tested end-to-end in real Chromium against a local mock that reproduces the store's documented behaviours (JS-rendered page, cookie overlay, reveal gate needing hover dwell, dropped clicks, late price and stock, hidden/off-screen/transparent decoys, struck-through MRP, zero-width characters). The live site could not be reached from the environment this was built in. **Before recording, run `npm run probe` and `npm run scrape:headed -- --product <id>` against the real store.** If the catalogue path or JSON field names differ, adjust `CATALOG_PATH` in `.env` or the `pick(...)` key lists in `catalogClient.js`; the failure will be a clear message, not bad data.
-- **Heuristic extraction is deliberately strict.** If the live page shows two different prices at the same size, or a stock line that contradicts another nearby, the scrape fails with `price_ambiguous` / `stock_ambiguous` instead of guessing. Those codes tell you exactly what to look at in the headed run.
-- **Free-tier limits.** About 512 MB RAM on Render's free plan is tight for Chromium; that is why scraping is serialised. If many products are tracked, a scheduled run takes a few minutes.
-- **Manual scrape is public.** It is protected only by an "already running" check, which is acceptable for a demo. For real use, add authentication or rate limiting.
-- **Logs are append-only and never pruned.** Add a retention job if this ran for months.
+- **The live store is deliberately awkward.** It hides prices behind a device and pointer check. Some first attempts fail, so each product can take about 45 seconds. The retries make the final result reliable.
+- **Strict on purpose.** If the page is unclear, the scraper logs a failure instead of saving a guess. A gap in the history is better than a wrong price.
+- **Free-tier limits.** The Render free plan has about 512 MB of memory, so scraping runs one product at a time. It also sleeps when idle.
+- **The manual "Scrape now" endpoint has no login.** It is only guarded by an "already running" check, which is fine for a demo but not for real use.
+- **Logs are never deleted.** A long-running deployment would need a clean-up job.
+
+## Security notes
+
+- The Supabase **service-role key** lives only on the backend and is never sent to the browser.
+- The scheduler endpoint needs a secret token, compared in constant time.
+- Product details come from the store, never from the request body, and the scraper only builds URLs from the configured store address and a validated product id.
+- Database tables have row-level security on with no public access.
+- `.env` files are git-ignored. Never commit them.
+
+## Author
+
+_Your name, and a link to your GitHub or LinkedIn._
